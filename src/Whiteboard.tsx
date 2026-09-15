@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import "./Whiteboard.css";
+import { SettingsModal, DEFAULT_PALETTE, DEFAULT_BACKGROUND } from "./SettingsModal";
 
 type Point = { x: number; y: number };
 
@@ -29,10 +30,31 @@ type Action = "idle" | "stroke" | "lasso-select" | "lasso-drag";
 type InputMode = "keyboard" | "mouse";
 type Pattern = "blank" | "grid";
 
-const COLORS = ["#1e1e1e", "#e03131", "#2f9e44", "#1971c2", "#f08c00", "#9c36b5"];
 const CURSOR_SPEED = 450; // px/sec
 const SELECTION_PADDING = 12;
 const GRID_SIZE = 24;
+const PALETTE_STORAGE_KEY = "whiteboard-palette";
+const BACKGROUND_STORAGE_KEY = "whiteboard-background";
+
+function loadStoredPalette(): string[] {
+  try {
+    const stored = localStorage.getItem(PALETTE_STORAGE_KEY);
+    if (!stored) return DEFAULT_PALETTE;
+    const parsed = JSON.parse(stored);
+    if (Array.isArray(parsed) && parsed.every((c) => typeof c === "string")) return parsed;
+  } catch {
+    // ignore malformed storage
+  }
+  return DEFAULT_PALETTE;
+}
+
+function loadStoredBackground(): string {
+  try {
+    return localStorage.getItem(BACKGROUND_STORAGE_KEY) ?? DEFAULT_BACKGROUND;
+  } catch {
+    return DEFAULT_BACKGROUND;
+  }
+}
 
 function drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number) {
   ctx.strokeStyle = "#d7dbe0";
@@ -146,18 +168,22 @@ export default function Whiteboard() {
   const dragStartRef = useRef<Point>({ x: 0, y: 0 });
   const dragOriginalRef = useRef<Stroke[]>([]);
 
-  const [color, setColor] = useState(COLORS[0]);
+  const [palette, setPalette] = useState<string[]>(loadStoredPalette);
+  const [color, setColor] = useState(() => loadStoredPalette()[0]);
   const [size, setSize] = useState(4);
   const [tool, setTool] = useState<Tool>("draw");
   const [canUndo, setCanUndo] = useState(false);
-  const [inputMode, setInputMode] = useState<InputMode>("keyboard");
+  const [inputMode, setInputMode] = useState<InputMode>("mouse");
   const [pattern, setPattern] = useState<Pattern>("blank");
+  const [background, setBackground] = useState(loadStoredBackground);
+  const [showSettings, setShowSettings] = useState(false);
 
   const toolRef = useRef(tool);
   const colorRef = useRef(color);
   const sizeRef = useRef(size);
   const inputModeRef = useRef(inputMode);
   const patternRef = useRef(pattern);
+  const backgroundRef = useRef(background);
   useEffect(() => {
     const previousTool = toolRef.current;
     toolRef.current = tool;
@@ -165,6 +191,7 @@ export default function Whiteboard() {
     sizeRef.current = size;
     inputModeRef.current = inputMode;
     patternRef.current = pattern;
+    backgroundRef.current = background;
 
     if (previousTool === "lasso" && tool !== "lasso") {
       selectedIndicesRef.current = [];
@@ -172,7 +199,23 @@ export default function Whiteboard() {
       lassoPathRef.current = [];
       actionRef.current = "idle";
     }
-  }, [tool, color, size, inputMode, pattern]);
+  }, [tool, color, size, inputMode, pattern, background]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PALETTE_STORAGE_KEY, JSON.stringify(palette));
+    } catch {
+      // ignore storage failures (e.g. private browsing quota)
+    }
+  }, [palette]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(BACKGROUND_STORAGE_KEY, background);
+    } catch {
+      // ignore storage failures (e.g. private browsing quota)
+    }
+  }, [background]);
 
   const redraw = () => {
     const canvas = canvasRef.current;
@@ -185,7 +228,7 @@ export default function Whiteboard() {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = backgroundRef.current;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
 
@@ -564,6 +607,24 @@ export default function Whiteboard() {
   return (
     <div className="whiteboard-app">
       <div className="toolbar">
+        <div className="toolbar-left">
+          <button
+            className="settings-button"
+            onClick={() => setShowSettings(true)}
+            title="Settings"
+          >
+            <img src="/setting-5-svgrepo-com.svg" alt="Settings" />
+          </button>
+
+          <label className="size-label">
+            Pattern
+            <select className="pattern-select" value={pattern} onChange={(e) => setPattern(e.target.value as Pattern)}>
+              <option value="blank">Blank</option>
+              <option value="grid">Grid</option>
+            </select>
+          </label>
+        </div>
+
         <div className="toolbar-title">Whiteboard Tool</div>
         <div className="toolbar-groups">
         <div className="toolbar-group">
@@ -612,9 +673,9 @@ export default function Whiteboard() {
         </div>
 
         <div className="toolbar-group">
-          {COLORS.map((c) => (
+          {palette.map((c, i) => (
             <button
-              key={c}
+              key={i}
               className={color === c && tool !== "erase" ? "swatch active" : "swatch"}
               style={{ background: c }}
               onClick={() => {
@@ -673,16 +734,6 @@ export default function Whiteboard() {
               : "WASD to move · hold Enter to draw"}
         </div>
         </div>
-
-        <div className="toolbar-pattern">
-          <label className="size-label">
-            Pattern
-            <select value={pattern} onChange={(e) => setPattern(e.target.value as Pattern)}>
-              <option value="blank">Blank</option>
-              <option value="grid">Grid</option>
-            </select>
-          </label>
-        </div>
       </div>
 
       <div className={`canvas-container ${inputMode === "mouse" ? "mouse-mode" : ""}`}>
@@ -695,6 +746,16 @@ export default function Whiteboard() {
           onPointerCancel={handlePointerUp}
         />
       </div>
+
+      {showSettings && (
+        <SettingsModal
+          palette={palette}
+          background={background}
+          onChangePalette={setPalette}
+          onChangeBackground={setBackground}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }
