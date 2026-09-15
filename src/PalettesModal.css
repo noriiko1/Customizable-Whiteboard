@@ -1,0 +1,87 @@
+.palettes-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.palettes-modal {
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  padding: 20px 24px;
+  width: 320px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  color: #f1f3f5;
+}
+
+.palettes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.palettes-header h2 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.palettes-close {
+  border: none;
+  background: transparent;
+  color: #adb5bd;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+}
+
+.palettes-close:hover {
+  color: #f1f3f5;
+}
+
+.palettes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.palettes-preset {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #3a3a3a;
+  background: #2b2b2b;
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.palettes-preset:hover {
+  background: #3a3a3a;
+}
+
+.palettes-preset-swatches {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.palettes-preset-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+}
+
+.palettes-preset-name {
+  font-size: 14px;
+  color: #e9ecef;
+}

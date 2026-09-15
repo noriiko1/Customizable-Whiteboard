@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./Whiteboard.css";
 import { SettingsModal, DEFAULT_PALETTE, DEFAULT_BACKGROUND } from "./SettingsModal";
+import { PalettesModal } from "./PalettesModal";
 
 type Point = { x: number; y: number };
 
@@ -177,6 +178,7 @@ export default function Whiteboard() {
   const [pattern, setPattern] = useState<Pattern>("blank");
   const [background, setBackground] = useState(loadStoredBackground);
   const [showSettings, setShowSettings] = useState(false);
+  const [showPalettes, setShowPalettes] = useState(false);
 
   const toolRef = useRef(tool);
   const colorRef = useRef(color);
@@ -733,6 +735,12 @@ export default function Whiteboard() {
               ? "WASD to move · hold Enter to loop, then hold Enter inside the selection to drag"
               : "WASD to move · hold Enter to draw"}
         </div>
+
+        <div className="toolbar-group">
+          <button className="tool palettes-button" onClick={() => setShowPalettes(true)}>
+            Palettes
+          </button>
+        </div>
         </div>
       </div>
 
@@ -754,6 +762,16 @@ export default function Whiteboard() {
           onChangePalette={setPalette}
           onChangeBackground={setBackground}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {showPalettes && (
+        <PalettesModal
+          onSelectPreset={(colors) => {
+            setPalette(colors);
+            setColor(colors[0]);
+          }}
+          onClose={() => setShowPalettes(false)}
         />
       )}
     </div>

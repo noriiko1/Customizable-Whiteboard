@@ -67,6 +67,11 @@
   flex-wrap: wrap;
 }
 
+.palettes-button {
+  min-width: 120px;
+  text-align: center;
+}
+
 .toolbar-group {
   display: flex;
   align-items: center;
