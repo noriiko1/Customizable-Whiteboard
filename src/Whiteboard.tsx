@@ -5,7 +5,7 @@ import { PalettesModal } from "./PalettesModal";
 
 type Point = { x: number; y: number };
 
-type Tool = "draw" | "erase" | "line" | "square" | "circle" | "lasso";
+type Tool = "draw" | "erase" | "line" | "square" | "circle" | "lasso" | "fill";
 
 type FreehandStroke = {
   kind: "freehand";
@@ -23,7 +23,18 @@ type ShapeStroke = {
   size: number;
 };
 
-type Stroke = FreehandStroke | ShapeStroke;
+type FillStroke = {
+  kind: "fill";
+  canvas: HTMLCanvasElement;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color: string;
+};
+
+type DrawableStroke = FreehandStroke | ShapeStroke;
+type Stroke = DrawableStroke | FillStroke;
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 
@@ -92,6 +103,9 @@ function lineEnd(start: Point, point: Point): Point {
 }
 
 function strokeBounds(stroke: Stroke): Bounds {
+  if (stroke.kind === "fill") {
+    return { minX: stroke.x, minY: stroke.y, maxX: stroke.x + stroke.width, maxY: stroke.y + stroke.height };
+  }
   const points = stroke.kind === "freehand" ? stroke.points : [stroke.start, stroke.end];
   let minX = Infinity;
   let minY = Infinity;
@@ -146,6 +160,9 @@ function translateStroke(stroke: Stroke, dx: number, dy: number): Stroke {
   if (stroke.kind === "freehand") {
     return { ...stroke, points: stroke.points.map((p) => ({ x: p.x + dx, y: p.y + dy })) };
   }
+  if (stroke.kind === "fill") {
+    return { ...stroke, x: stroke.x + dx, y: stroke.y + dy };
+  }
   return {
     ...stroke,
     start: { x: stroke.start.x + dx, y: stroke.start.y + dy },
@@ -153,11 +170,23 @@ function translateStroke(stroke: Stroke, dx: number, dy: number): Stroke {
   };
 }
 
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  let h = hex.replace("#", "");
+  if (h.length === 3) {
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
+  }
+  const num = parseInt(h, 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
 export default function Whiteboard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const inkCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
-  const currentStrokeRef = useRef<Stroke | null>(null);
+  const currentStrokeRef = useRef<DrawableStroke | null>(null);
   const actionRef = useRef<Action>("idle");
   const canvasSizeRef = useRef({ width: 0, height: 0 });
   const cursorRef = useRef<Point>({ x: 0, y: 0 });
@@ -256,6 +285,11 @@ export default function Whiteboard() {
     inkCtx.lineCap = "round";
 
     for (const stroke of allStrokes) {
+      if (stroke.kind === "fill") {
+        inkCtx.drawImage(stroke.canvas, stroke.x, stroke.y, stroke.width, stroke.height);
+        continue;
+      }
+
       inkCtx.lineWidth = stroke.size;
 
       if (stroke.kind === "freehand") {
@@ -378,6 +412,116 @@ export default function Whiteboard() {
     redraw();
   };
 
+  const performFill = () => {
+    const canvas = canvasRef.current;
+    const inkCanvas = inkCanvasRef.current;
+    if (!canvas || !inkCanvas) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    if (width === 0 || height === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+
+    // composite background + committed ink (no cursor/selection overlays) so the
+    // fill only ever samples/stops at what the user actually drew
+    const sampleCanvas = document.createElement("canvas");
+    sampleCanvas.width = width;
+    sampleCanvas.height = height;
+    const sampleCtx = sampleCanvas.getContext("2d");
+    if (!sampleCtx) return;
+    sampleCtx.fillStyle = backgroundRef.current;
+    sampleCtx.fillRect(0, 0, width, height);
+    sampleCtx.drawImage(inkCanvas, 0, 0);
+
+    const imageData = sampleCtx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+
+    const startX = Math.round(cursorRef.current.x * dpr);
+    const startY = Math.round(cursorRef.current.y * dpr);
+    if (startX < 0 || startY < 0 || startX >= width || startY >= height) return;
+
+    const startIdx = (startY * width + startX) * 4;
+    const targetR = data[startIdx];
+    const targetG = data[startIdx + 1];
+    const targetB = data[startIdx + 2];
+    const targetA = data[startIdx + 3];
+
+    const fillColor = hexToRgb(colorRef.current);
+    const alreadyFilled =
+      Math.abs(targetR - fillColor.r) <= 4 &&
+      Math.abs(targetG - fillColor.g) <= 4 &&
+      Math.abs(targetB - fillColor.b) <= 4 &&
+      targetA === 255;
+    if (alreadyFilled) return;
+
+    const tolerance = 32;
+    const matches = (o: number) =>
+      Math.abs(data[o] - targetR) <= tolerance &&
+      Math.abs(data[o + 1] - targetG) <= tolerance &&
+      Math.abs(data[o + 2] - targetB) <= tolerance &&
+      Math.abs(data[o + 3] - targetA) <= tolerance;
+
+    const visited = new Uint8Array(width * height);
+    const stack: number[] = [startY * width + startX];
+    let minX = startX;
+    let maxX = startX;
+    let minY = startY;
+    let maxY = startY;
+    const filled: number[] = [];
+
+    while (stack.length) {
+      const packed = stack.pop()!;
+      if (visited[packed]) continue;
+      const x = packed % width;
+      const y = (packed / width) | 0;
+      if (!matches(packed * 4)) continue;
+      visited[packed] = 1;
+      filled.push(packed);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (x + 1 < width) stack.push(packed + 1);
+      if (x - 1 >= 0) stack.push(packed - 1);
+      if (y + 1 < height) stack.push(packed + width);
+      if (y - 1 >= 0) stack.push(packed - width);
+    }
+
+    if (filled.length === 0) return;
+
+    const boundWidth = maxX - minX + 1;
+    const boundHeight = maxY - minY + 1;
+    const fillCanvas = document.createElement("canvas");
+    fillCanvas.width = boundWidth;
+    fillCanvas.height = boundHeight;
+    const fillCtx = fillCanvas.getContext("2d");
+    if (!fillCtx) return;
+    const fillImageData = fillCtx.createImageData(boundWidth, boundHeight);
+    for (const packed of filled) {
+      const px = packed % width;
+      const py = (packed / width) | 0;
+      const o = ((py - minY) * boundWidth + (px - minX)) * 4;
+      fillImageData.data[o] = fillColor.r;
+      fillImageData.data[o + 1] = fillColor.g;
+      fillImageData.data[o + 2] = fillColor.b;
+      fillImageData.data[o + 3] = 255;
+    }
+    fillCtx.putImageData(fillImageData, 0, 0);
+
+    const stroke: FillStroke = {
+      kind: "fill",
+      canvas: fillCanvas,
+      x: minX / dpr,
+      y: minY / dpr,
+      width: boundWidth / dpr,
+      height: boundHeight / dpr,
+      color: colorRef.current,
+    };
+
+    strokesRef.current.push(stroke);
+    setCanUndo(true);
+    redraw();
+  };
+
   const startAction = () => {
     const point = { ...cursorRef.current };
     const tool = toolRef.current;
@@ -394,6 +538,11 @@ export default function Whiteboard() {
         selectedIndicesRef.current = [];
         selectionBoundsRef.current = null;
       }
+      return;
+    }
+
+    if (tool === "fill") {
+      performFill();
       return;
     }
 
@@ -672,6 +821,13 @@ export default function Whiteboard() {
           >
             ➰
           </button>
+          <button
+            className={tool === "fill" ? "tool active" : "tool"}
+            onClick={() => setTool("fill")}
+            title="Fill"
+          >
+            🪣
+          </button>
         </div>
 
         <div className="toolbar-group">
@@ -728,19 +884,24 @@ export default function Whiteboard() {
           </button>
         </div>
 
-        <div className="toolbar-group hint">
-          {inputMode === "mouse"
-            ? "Mouse mode · click and drag to draw"
-            : tool === "lasso"
-              ? "WASD to move · hold Enter to loop, then hold Enter inside the selection to drag"
-              : "WASD to move · hold Enter to draw"}
         </div>
 
-        <div className="toolbar-group">
+        <div className="toolbar-right">
+          <div className="hint">
+            {inputMode === "mouse"
+              ? tool === "fill"
+                ? "Mouse mode · click an enclosed area to fill it"
+                : "Mouse mode · click and drag to draw"
+              : tool === "lasso"
+                ? "WASD to move · hold Enter to loop, then hold Enter inside the selection to drag"
+                : tool === "fill"
+                  ? "WASD to move · press Enter to fill"
+                  : "WASD to move · hold Enter to draw"}
+          </div>
+
           <button className="tool palettes-button" onClick={() => setShowPalettes(true)}>
             Palettes
           </button>
-        </div>
         </div>
       </div>
 
