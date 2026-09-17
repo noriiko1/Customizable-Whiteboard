@@ -14,6 +14,7 @@ Keyboard: Navigate using WASD keys and press down Enter to draw
 - Rectangle Tool: Makes rectangles
 - Lasso Tool: Lets you circle a drawing and move it around the whiteboard
 - Erase Tool: Lets you erase drawings
+- Fill Tool: Lets you fill in closed shapes
 
 ## Additional Options:
 - You can change the color and size of what you want to draw.
